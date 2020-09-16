@@ -351,10 +351,10 @@ check_cert(pesigcheck_context *ctx, SECItem *sig, efi_guid_t *sigtype,
 	PRBool result;
 	SECStatus rv;
 	db_status status = NOT_FOUND;
-	PRTime atTime = PR_Now();
+	PRTime atTime;
+	PRTime sigTime;
 	SECItem *eTime;
-	PRTime earlyNow = 0, lateNow = 0x7fffffffffffffff;
-	PRTime notBefore, notAfter;
+	PRTime notBefore=0, notAfter=0x7fffffffffffffff;
 
 	efi_guid_t efi_x509 = efi_guid_x509_cert;
 
@@ -366,29 +366,20 @@ check_cert(pesigcheck_context *ctx, SECItem *sig, efi_guid_t *sigtype,
 	if (!cinfo)
 		goto out;
 
-	notBefore = earlyNow;
-	notAfter = lateNow;
 	find_cert_times(cinfo, &notBefore, &notAfter);
-	if (earlyNow < notBefore)
-		earlyNow = notBefore;
-	if (lateNow > notAfter)
-		lateNow = notAfter;
+	atTime = notBefore/2 + notAfter/2;
 
-	// atTime = determine_reasonable_time(cert);
 	eTime = SEC_PKCS7GetSigningTime(cinfo);
 	if (eTime != NULL) {
-		if (DER_DecodeTimeChoice (&atTime, eTime) == SECSuccess) {
-			if (earlyNow < atTime)
-				earlyNow = atTime;
-			if (lateNow > atTime)
-				lateNow = atTime;
+		if (DER_DecodeTimeChoice (&sigTime, eTime) == SECSuccess) {
+			if (sigTime > notAfter){
+				printf("Signature time is greater than certificate expiration date: %lld > %lld\n",
+					sigTime / 1000000LL, notAfter / 1000000LL);
+			} else {
+				atTime = sigTime;
+			}
 		}
 	}
-
-	if (lateNow < earlyNow)
-		printf("Signature has impossible time constraint: %lld <= %lld\n",
-		       earlyNow / 1000000LL, lateNow / 1000000LL);
-	atTime = earlyNow / 2 + lateNow / 2;
 
 	cinfo = SEC_PKCS7DecodeItem(pkcs7sig, NULL, NULL, NULL, NULL, NULL,
 				    NULL, NULL);
